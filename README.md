@@ -1,6 +1,6 @@
 # LoxBerry-Plugin: 3D-Drucker (Creality2Lox)
 
-Version 0.9.1 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
+Version 0.9.2 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
 
 Bindet einen Creality-Drucker mit Klipper und **Moonraker** an Loxone an. Das Plugin fragt die HTTP-Schnittstelle von
 Moonraker im Heimnetz ab (Port 7125, ohne Anmeldung) und gibt Druckzustand, Fortschritt, Restzeit, Schicht,
@@ -10,9 +10,14 @@ wahlweise über einen **HTTP-Lesezweig**. Keine Cloud, kein Konto, keine Anmeldu
 Befehle (Pause, Fortsetzen, Druck abbrechen, Notaus, Licht) sind eingebaut, **ab Werk aus** und **nicht am Gerät
 erprobt**.
 
+## Neu in 0.9.2
+
+- Im Reiter „Einbindung in Loxone“ steht unter der Baustein-Liste das Bild der Seite „Creality2Lox“ aus dem LoxBerry-Plugins Musterprojekt. Es ersetzt den Satz, dass es ein solches Bild noch nicht gibt.
+- Am Gerät nicht gemessen; geprüft unter PHP 7.4 und 8.4 auf dem Arbeitsrechner.
+
 ## Stand dieser Fassung
 
-- Neu gebaut am 12.11.2026, erste veröffentlichte Fassung, noch auf keinem LoxBerry installiert.
+- Neu gebaut am 12.11.2026, noch auf keinem LoxBerry installiert.
 - Am Drucker gemessen wurde nur lesend und nur im Ruhezustand (`print_stats.state = standby`). Die Zustände
   „druckt“, „pausiert“, „fertig“, „abgebrochen“ und „Fehler“ sowie alle Befehlswege stehen in der
   Moonraker-Dokumentation; im Prüfstand sind sie gegen eine Moonraker-Attrappe geprüft, am Gerät nicht.

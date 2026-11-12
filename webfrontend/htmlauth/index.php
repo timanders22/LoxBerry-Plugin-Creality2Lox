@@ -464,6 +464,10 @@ if ($cr_frame) {
     border-radius: 8px; max-height: 480px; overflow: auto; white-space: pre-wrap; }
 .sm-wrap .sm-beanstandet { border: 2px solid #c62828 !important; background: #fff5f5 !important; }
 .sm-knopfreihe form { margin: 0; display: flex; }
+/* Seitenbild aus dem Musterprojekt, wie Weatherdata 0.9.17. */
+.sm-bild { margin: 12px 0; }
+.sm-bild img { max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+.sm-bild figcaption { font-size: .9em; color: #555; margin-top: 4px; }
 </style>
 <div class="sm-wrap">
 
@@ -669,7 +673,11 @@ foreach ($cr_fehler as $cr_f) { ?><div class="sm-warnung"><b><?= cr_e(cr_t('TEXT
 <tr><td>5</td><td><?= cr_e(cr_t('BAUSTEIN.Z5_TYP')) ?></td><td><span class="sm-mono"><?= cr_e(cr_t('BAUSTEIN.Z5_NAME')) ?></span></td><td><?= cr_e(cr_t('BAUSTEIN.Z5_PARAM')) ?></td><td><span class="sm-mono"><?= cr_e(cr_gateway_name($cr_praefix . '/cfs/1/feuchte_prozent')) ?></span></td></tr>
 </table>
 </div>
-<div class="sm-klein"><?= cr_e(cr_t('LOX.MUSTERPROJEKT_FEHLT')) ?></div></div>
+<figure class="sm-bild">
+<img src="einbindung_creality2lox.png" alt="<?= cr_e(cr_t('LOX.BILD_ALT')) ?>" loading="lazy">
+<figcaption><?= cr_e(cr_t('LOX.BILD_UNTERSCHRIFT')) ?></figcaption>
+</figure>
+<div class="sm-klein"><?= cr_e(cr_t('LOX.MUSTERPROJEKT')) ?> <a href="https://github.com/timanders22/LoxBerry-Plugins-Musterprojekt" target="_blank" rel="noopener">LoxBerry-Plugins Musterprojekt</a></div></div>
 
 <div class="sm-step"><b><?= cr_e(cr_t('LOX.S4_TITEL')) ?></b><br>
 <?= cr_e(cr_t('LOX.S4_TEXT')) ?>
