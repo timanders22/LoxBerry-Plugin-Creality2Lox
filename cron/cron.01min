@@ -1,0 +1,46 @@
+#!/bin/sh
+# Creality2Lox - minuetlicher Cron (Druckerabfrage, MQTT, Waechter der Befehlsbruecke)
+# Den bin-Pfad des Plugins setzt der Installer in der Befehlszeile ein.
+# Die Fehlerausgabe von cron.php geht in log/plugins/<ordner>/cron.log, die normale
+# Ausgabe ("OK") bleibt unterdrueckt. Bauart Saugroboter-Valetudo 1.1.37.
+
+BIN="REPLACELBPBINDIR"
+
+# Den Protokollpfad ABLEITEN statt auf eine Umgebungsvariable zu setzen:
+# ob LoxBerry LBPLOGDIR im Cron-Zusammenhang setzt, ist hier nicht gemessen.
+# $BIN ist <home>/bin/plugins/<ordner> - also drei Ebenen bis <home>.
+ORDNER=$(basename "$BIN")
+HOME_LB=$(cd "$BIN/../../.." 2>/dev/null && pwd)
+# EIGENE Datei fuer die Fehlerausgabe der Schale (nicht creality.log, das das
+# Plugin selbst in festem Format fuehrt). Der Reiter Logdateien nennt beide.
+if [ -n "$HOME_LB" ] && [ -d "$HOME_LB/log/plugins/$ORDNER" ]; then
+    LOG="$HOME_LB/log/plugins/$ORDNER/cron.log"
+else
+    LOG="/tmp/$ORDNER-cron.log"
+fi
+# Ist die Fehlerdatei nicht schreibbar, braeche die Umlenkung den Befehl ab, BEVOR er startet.
+# Dann geht die Fehlerausgabe nach /dev/null, und der Lauf findet statt.
+( : >>"$LOG" ) 2>/dev/null || LOG=/dev/null
+
+if [ ! -f "$BIN/cron.php" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cron: $BIN/cron.php fehlt - Platzhalter nicht ersetzt?" >> "$LOG"
+    exit 1
+fi
+
+PHP=$(command -v php 2>/dev/null)
+[ -n "$PHP" ] || PHP=/usr/bin/php
+if [ ! -x "$PHP" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cron: kein PHP gefunden." >> "$LOG"
+    exit 1
+fi
+
+# cron.log ab 256 kB auf die letzten 300 Zeilen kappen, ueber eine Nebendatei. Ruft jemand diese Datei als root
+# auf, laeuft cron.php als loxberry. Die Upgrade-Marke prueft bin/cron.php selbst.
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 262144 ]; then
+    tail -n 300 "$LOG" > "$LOG.neu" 2>/dev/null && mv -f "$LOG.neu" "$LOG"
+fi
+if command -v su >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
+    su loxberry -s /bin/sh -c '"$0" "$1/cron.php"' "$PHP" "$BIN" >/dev/null 2>>"$LOG"
+else
+    "$PHP" "$BIN/cron.php" >/dev/null 2>>"$LOG"
+fi

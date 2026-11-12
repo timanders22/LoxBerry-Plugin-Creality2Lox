@@ -1,0 +1,45 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Creality2Lox - Anschluss an den LoxBerry-Healthcheck (Bauart Saugroboter-Valetudo 1.1.37).
+ *
+ * LoxBerry ruft bin/healthcheck direkt und als Benutzer loxberry auf - einmal mit 'title', einmal mit 'check'.
+ * Antwort: JSON mit desc, status, result, logfile; Status 3 Fehler, 4 Warnung, 5 in Ordnung, 6 Hinweis.
+ * NUR AUS DATEIEN: lauf.json, zustand.json, Zustand der Befehlsbruecke, Konfigurationslage. Keine Abfrage beim
+ * Drucker, nichts angelegt (cr_config_erzeugen_erlauben(false)). Die Stufen rechnet cr_gesundheit().
+ */
+
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+ini_set('display_errors', '0');
+
+$cr_was = isset($argv[1]) ? strtolower((string) $argv[1]) : 'check';
+if ($cr_was === 'title') {
+    echo "3D-Drucker (Creality2Lox)\n";
+    exit(0);
+}
+
+if (basename(dirname(__DIR__)) === 'plugins' && basename(dirname(dirname(__DIR__))) === 'bin') {
+    $cr_lib = dirname(dirname(dirname(__DIR__))) . '/webfrontend/html/plugins/' . basename(__DIR__) . '/cr_lib.php';
+} else {
+    $cr_lib = dirname(__DIR__) . '/webfrontend/html/cr_lib.php';
+}
+if (!is_file($cr_lib)) {
+    echo json_encode(array(
+        'desc'   => '3D-Drucker (Creality2Lox)',
+        'status' => 3,
+        'result' => 'Die Bibliothek cr_lib.php wurde nicht gefunden - das Plugin ist unvollstaendig installiert.',
+    )) . "\n";
+    exit(0);
+}
+require_once $cr_lib;
+cr_config_erzeugen_erlauben(false);
+
+list($cr_status, $cr_text) = cr_gesundheit();
+
+echo json_encode(array(
+    'desc'    => '3D-Drucker (Creality2Lox)',
+    'status'  => (int) $cr_status,
+    'result'  => (string) $cr_text,
+    'logfile' => cr_paths()['log'],
+), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+exit(0);
