@@ -22,6 +22,11 @@
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 date_default_timezone_set('Europe/Berlin');
 
+/* 0.9.3: Das gemeinsame Sicherungsmodul (Abschrift von Werkzeuge/gemeinsam/sicherung.php im Arbeitsordner, Auftrag
+ * des Hausherrn 12.11.2026): Einstellungen sichern und zurueckspielen nach den Regeln des Moduls. Die Beschreibung
+ * dieser Linie steht in cr_sicherung_beschreibung(). */
+require_once __DIR__ . '/sicherung.php';
+
 define('CR_ORDNER_VORGABE', 'creality2lox');
 define('CR_CFS_MAX', 4);                 // Creality-Materialboxen T1 bis T4 (gemessen: box.T1 ... box.T4)
 define('CR_LAUF_FRIST', 50);             // so lange darf ein Minutenlauf hoechstens abfragen (s)
@@ -538,55 +543,47 @@ function cr_pluginversion()
 }
 
 /* ---------------------------------------------------------------------------------------------------------------
- * Sichern und Zurueckspielen (Muster WOLF ISM NG 3.0.8 / Saugroboter-Valetudo 1.1.37)
+ * Sichern und Zurueckspielen: das gemeinsame Sicherungsmodul (seit 0.9.3)
  * ------------------------------------------------------------------------------------------------------------- */
 
 /**
- * Sicherungsdatei: ALLE Schluessel der Vorgaben samt Aktionstoken (ohne ihn waere die Datei nach dem Zurueckspielen
- * wertlos) und ein lesbarer Kopf mit "_". Das Formularmerkmal gehoert nicht hinein.
+ * 0.9.3: Die Beschreibung dieser Linie fuer das gemeinsame Sicherungsmodul (Auftrag des Hausherrn 12.11.2026, Welle 1,
+ * Gruppe 5a). Bis 0.9.2 stand hier eine eigene Bau- und Leseschleife (Muster WOLF ISM NG 3.0.8 / Saugroboter-Valetudo
+ * 1.1.37). Gemessen 15.11.2026 mit Werkzeuge/sicherung_pruefstand.py an 0.9.2: ein unbekannter Schluessel wies die
+ * ganze Datei ab, ein leerer Wert ebenso (statt den bisherigen stehen zu lassen), eine Datei ohne Kennzeichen wurde
+ * angenommen, und der Knopf "Einstellungen zurueckspielen" wirkte ohne Haken. Seither gelten die Regeln des Moduls.
+ *
+ * Das Kennzeichen 'creality2lox' bleibt, wie es ist (Regeln/05, Punkt 1). Jede Fassung seit 0.9.1 schrieb es und alle
+ * Schluessel von cr_vorgaben() (unveraendert seit 0.9.1, gemessen) - deshalb kein Uebersetzer und kein
+ * 'fehlt' => 'behalten'. Jeder Wert geht durch cr_wert_taugt() und cr_wert_pruefen() wie bisher, mit demselben Satz
+ * (TEXT.SICH_WERT); 'wandeln' nimmt fuer Zahlen die Normalform (int) wie bis 0.9.2. Die Fassung im Kopf kommt aus der
+ * Plugin-Datenbank bzw. der plugin.cfg (sicherung_fassung_lesen()). Das Formularmerkmal gehoert nicht hinein.
  */
-function cr_sicherung_bauen()
+function cr_sicherung_beschreibung()
 {
-    $cfg = cr_config();
-    $aus = array('_hinweis' => cr_t('TEXT.SICH_HINWEIS_KOPF'), '_stand' => date('Y-m-d H:i'),
-                 '_fassung' => cr_pluginversion(), '_plugin' => 'creality2lox');
-    foreach (array_keys(cr_vorgaben()) as $k) { $aus[$k] = isset($cfg[$k]) ? $cfg[$k] : null; }
-    return $aus;
-}
-
-/**
- * Eine Sicherungsdatei pruefen. Rueckgabe array(neue Konfiguration oder null, Beanstandungen, Zahl uebernommen).
- * Fremdes wird vor dem Zusammenfuehren abgelehnt, jeder Wert geprueft, jeder Schluessel der Vorgaben verlangt;
- * eine halb gueltige Datei aendert gar nichts. Schluessel werden maskiert in die Beanstandung gesetzt.
- */
-function cr_sicherung_lesen($roh)
-{
-    $mangel = array();
-    $daten = json_decode((string) $roh, true);
-    if (!is_array($daten)) { return array(null, array(cr_t('TEXT.SICH_KEIN_JSON')), 0); }
-    if (isset($daten['_plugin']) && $daten['_plugin'] !== 'creality2lox') {
-        return array(null, array(sprintf(cr_t('TEXT.SICH_FREMDES_PLUGIN'), cr_e((string) (is_scalar($daten['_plugin']) ? $daten['_plugin'] : '?')))), 0);
-    }
+    $p = cr_paths();
     $vorgaben = cr_vorgaben();
-    $neu = $vorgaben;
-    $anzahl = 0;
-    foreach ($daten as $k => $w) {
-        $k = (string) $k;
-        if ($k !== '' && $k[0] === '_') { continue; }
-        if (!array_key_exists($k, $vorgaben)) { $mangel[] = sprintf(cr_t('TEXT.SICH_FREMD'), cr_e($k)); continue; }
-        if (!cr_wert_taugt($w)) { $mangel[] = sprintf(cr_t('TEXT.SICH_WERT'), cr_e($k), cr_e(cr_t('GRUND.STEUERZEICHEN'))); continue; }
-        $grund = cr_wert_pruefen($k, $w);
-        if ($grund !== '') { $mangel[] = sprintf(cr_t('TEXT.SICH_WERT'), cr_e($k), cr_e($grund)); continue; }
-        $neu[$k] = is_int($vorgaben[$k]) ? (int) $w : $w;
-        $anzahl++;
+    $schluessel = array();
+    foreach ($vorgaben as $k => $v) {
+        if (is_int($v)) {
+            $schluessel[$k] = array('wandeln' => function ($w) { return (int) $w; });
+        }
     }
-    $fehlend = array();
-    foreach (array_keys($vorgaben) as $fk) {
-        if (!array_key_exists($fk, $daten)) { $fehlend[] = $fk; }
-    }
-    if ($fehlend) { $mangel[] = sprintf(cr_t('TEXT.SICH_FEHLEND'), count($fehlend), cr_e(implode(', ', $fehlend))); }
-    if ($anzahl === 0 && !$mangel) { $mangel[] = cr_t('TEXT.SICH_LEER'); }
-    return array($mangel ? null : $neu, $mangel, $anzahl);
+    return array(
+        'kennzeichen' => 'creality2lox',
+        'hinweis' => cr_t('TEXT.SICH_HINWEIS_KOPF'),
+        'vorgaben' => $vorgaben,
+        'schluessel' => $schluessel,
+        'pruefen' => function ($k, $w) {
+            $grund = cr_wert_taugt($w) ? cr_wert_pruefen($k, $w) : cr_t('GRUND.STEUERZEICHEN');
+            return $grund === '' ? '' : sprintf(cr_t('TEXT.SICH_WERT'), cr_e($k), cr_e($grund));
+        },
+        'jetzt' => function () { return cr_config(false); },
+        't' => 'cr_t',
+        'home' => $p['lbhome'],
+        'ordner' => $p['plugin'],
+        'plugin_cfg' => dirname(dirname(__DIR__)) . '/plugin.cfg',
+    );
 }
 
 /* ---------------------------------------------------------------------------------------------------------------

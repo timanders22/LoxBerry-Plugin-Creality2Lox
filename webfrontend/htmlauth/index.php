@@ -185,10 +185,10 @@ if ($cr_formular === 'vorlage_vi' || $cr_formular === 'vorlage_vq' || $cr_formul
     exit;
 }
 /* Einstellungen sichern: die VOLLE Konfiguration samt Aktionstoken (ohne ihn waere die Datei wertlos), nie das
- * Formularmerkmal. */
+ * Formularmerkmal. 0.9.3: Kopf und Inhalt baut das gemeinsame Sicherungsmodul (sicherung_bauen()). */
 if ($cr_formular === 'sichern') {
-    $cr_js = json_encode(cr_sicherung_bauen(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($cr_js !== false) {
+    $cr_js = sicherung_json(sicherung_bauen(cr_sicherung_beschreibung(), cr_config()));
+    if ($cr_js !== '') {
         while (ob_get_level() > 0) { @ob_end_clean(); }
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="creality2lox_einstellungen_' . date('Ymd_His') . '.json"');
@@ -198,27 +198,32 @@ if ($cr_formular === 'sichern') {
     }
     cw_umleiten('tab-settings', array('fehler' => array(cr_e(cr_t('TEXT.SICH_SCHREIBFEHLER')))));
 }
-/* Einstellungen zurueckspielen: is_uploaded_file() zuerst, Groessengrenze, ALLE Beanstandungen, halb gueltig aendert
- * nichts; danach die Befehlsbruecke nachziehen und sagen, was mit ihr geschah. */
+/* Einstellungen zurueckspielen. 0.9.3: das gemeinsame Sicherungsmodul. sicherung_eingang() prueft den Haken zurueck_ok
+ * (ohne ihn wird nichts gelesen und nichts geaendert), is_uploaded_file() und die Groessengrenze des Moduls (256 kB;
+ * bis 0.9.2 hier 64 kB). sicherung_zurueckspielen() liest, prueft, verwirft Unbekanntes mit Namen, laesst einen
+ * leeren Wert den bisherigen stehen und aendert bei einer Beanstandung gar nichts (alle Beanstandungen gesammelt);
+ * die Speicherfunktion zieht die Zweitschrift mit. Danach die Befehlsbruecke nachziehen und sagen, was mit ihr
+ * geschah. Die Saetze des Moduls sind maskiert (Namen ueber htmlspecialchars) wie die Meldungen dieser Seite. */
 if ($cr_formular === 'zurueck') {
-    if (!isset($_FILES['cr_sicherung']['tmp_name']) || !is_string($_FILES['cr_sicherung']['tmp_name'])
-        || !@is_uploaded_file($_FILES['cr_sicherung']['tmp_name'])) {
-        $cr_fehler[] = cr_e(cr_t('TEXT.SICH_KEINE_DATEI'));
-    } elseif ((int) $_FILES['cr_sicherung']['size'] > 65536) {
-        $cr_fehler[] = cr_e(cr_t('TEXT.SICH_ZU_GROSS'));
-    } else {
-        list($cr_neu, $cr_mangel, $cr_n) = cr_sicherung_lesen((string) @file_get_contents($_FILES['cr_sicherung']['tmp_name']));
-        if ($cr_neu === null) {
-            $cr_fehler[] = cr_e(cr_t('TEXT.SICH_ABGELEHNT')) . ' ' . implode(' ', $cr_mangel);
-        } elseif (cr_config_speichern($cr_neu)) {
-            $cr_meldungen[] = cr_e(sprintf(cr_t('TEXT.SICH_UEBERNOMMEN'), $cr_n));
-            list($cr_brc, $cr_baus, $cr_bwas) = cr_bruecke_schalten();
-            $cr_meldungen[] = cr_e($cr_bwas === '' ? cr_t('BEFEHL.NACH_SICHERUNG_NICHTS')
-                : sprintf(cr_t('BEFEHL.NACH_SICHERUNG'), $cr_bwas, $cr_brc === 0 ? cr_t('WORT.JA') : cr_t('WORT.NEIN'), trim((string) $cr_baus)));
-        } else {
-            $cr_fehler[] = cr_e(cr_t('TEXT.SICH_SCHREIBFEHLER'));
-        }
+    $cr_sb = cr_sicherung_beschreibung();
+    list($cr_sroh, $cr_sr) = sicherung_eingang($cr_sb, $_POST, $_FILES, 'cr_sicherung');
+    if ($cr_sr === null) {
+        $cr_sb['speichern'] = function ($neu) { return cr_config_speichern($neu); };
+        $cr_sb['zweitschrift'] = function () {
+            $p = cr_paths();
+            return array($p['config'], $p['backup']);
+        };
+        $cr_sb['nachziehen'] = function () {
+            list($rc, $aus, $was) = cr_bruecke_schalten();
+            return array(cr_e($was === '' ? cr_t('BEFEHL.NACH_SICHERUNG_NICHTS')
+                : sprintf(cr_t('BEFEHL.NACH_SICHERUNG'), $was, $rc === 0 ? cr_t('WORT.JA') : cr_t('WORT.NEIN'), trim((string) $aus))));
+        };
+        $cr_sb['log'] = 'cr_log';
+        $cr_sr = sicherung_zurueckspielen($cr_sb, $cr_sroh);
     }
+    $cr_sm = sicherung_meldungen($cr_sb, $cr_sr);
+    foreach ($cr_sm['hinweise'] as $cr_sx) { $cr_meldungen[] = $cr_sx; }
+    foreach ($cr_sm['fehler'] as $cr_sx) { $cr_fehler[] = $cr_sx; }
     cw_umleiten('tab-settings', array('meldungen' => $cr_meldungen, 'fehler' => $cr_fehler));
 }
 
@@ -571,14 +576,15 @@ foreach ($cr_fehler as $cr_f) { ?><div class="sm-warnung"><b><?= cr_e(cr_t('TEXT
   <input data-role="none" type="hidden" name="formular" value="sichern">
   <input data-role="none" type="hidden" name="activetab" value="tab-settings">
   <?= cw_fmt() ?>
-  <button data-role="none" class="sm-btn sm-b-technik" type="submit"><?= cr_e(cr_t('KNOPF.SICHERN')) ?></button>
+  <button data-role="none" class="sm-btn sm-b-technik" type="submit" name="cr_sichern" value="1"><?= cr_e(cr_t('KNOPF.SICHERN')) ?></button>
 </form>
 <form action="index.php" method="post" enctype="multipart/form-data">
   <input data-role="none" type="hidden" name="formular" value="zurueck">
   <input data-role="none" type="hidden" name="activetab" value="tab-settings">
   <?= cw_fmt() ?>
   <input data-role="none" type="file" name="cr_sicherung" accept=".json,application/json">
-  <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= cr_e(cr_t('KNOPF.ZURUECK')) ?></button>
+  <?= sicherung_haken_zeile(cr_sicherung_beschreibung()) ?>
+  <button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="cr_zurueck" value="1"><?= cr_e(cr_t('KNOPF.ZURUECK')) ?></button>
 </form>
 </div>
 <div class="sm-hilfe"><?= cr_e(cr_t('EINST.ZURUECK_HILFE')) ?></div>
