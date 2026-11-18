@@ -1,6 +1,6 @@
 # LoxBerry-Plugin: 3D-Drucker (Creality2Lox)
 
-Version 0.9.3 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
+Version 0.9.4 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
 
 Bindet einen Creality-Drucker mit Klipper und **Moonraker** an Loxone an. Das Plugin fragt die HTTP-Schnittstelle von
 Moonraker im Heimnetz ab (Port 7125, ohne Anmeldung) und gibt Druckzustand, Fortschritt, Restzeit, Schicht,
@@ -9,6 +9,15 @@ wahlweise über einen **HTTP-Lesezweig**. Keine Cloud, kein Konto, keine Anmeldu
 
 Befehle (Pause, Fortsetzen, Druck abbrechen, Notaus, Licht) sind eingebaut, **ab Werk aus** und **nicht am Gerät
 erprobt**.
+
+## Neu in 0.9.4
+
+- **Verhalten geändert – Einstellungen sichern und zurückspielen mit dem gemeinsamen Sicherungsmodul 1.2.9 statt 1.2.3:**
+  - Einträge der geltenden Einstellungen, die diese Fassung nicht kennt (etwa aus einer Bearbeitung von Hand), fallen beim Zurückspielen weiter weg, werden jetzt aber mit ihrem Namen genannt, nie mit ihrem Wert. Bis 0.9.3 fielen sie still weg.
+  - Jede unbekannte Einstellung wird in der Meldung genau einmal genannt.
+  - Die übrigen Neuerungen der Modulfassungen bis 1.2.9 betreffen Fähigkeiten, die dieses Plugin nicht nutzt; an ihm ändert sich dadurch nichts.
+- **Knopf „Dokumentation“:** `plugin.cfg` nennt jetzt `WEBSITE=` mit diesem Repository; LoxBerry übernimmt die Adresse bei der Installation und zeigt sie in der Plugin-Verwaltung als Knopf.
+- Sicherungen der früheren Fassungen werden weiter angenommen wie bisher; gemessen mit dem Prüfstand auf dem Arbeitsrechner unter PHP 7.4 und 8.4, der über einen Webserver die echten Knöpfe drückt und 2 Vorfassungen zurückspielt. Am Gerät nicht gemessen.
 
 ## Neu in 0.9.3
 
