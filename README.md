@@ -1,6 +1,6 @@
 # LoxBerry-Plugin: 3D-Drucker (Creality2Lox)
 
-Version 0.9.5 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
+Version 0.9.6 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
 
 Bindet einen Creality-Drucker mit Klipper und **Moonraker** an Loxone an. Das Plugin fragt die HTTP-Schnittstelle von
 Moonraker im Heimnetz ab (Port 7125, ohne Anmeldung) und gibt Druckzustand, Fortschritt, Restzeit, Schicht,
@@ -9,6 +9,11 @@ wahlweise über einen **HTTP-Lesezweig**. Keine Cloud, kein Konto, keine Anmeldu
 
 Befehle (Pause, Fortsetzen, Druck abbrechen, Notaus, Licht) sind eingebaut, **ab Werk aus** und **nicht am Gerät
 erprobt**.
+
+## Neu in 0.9.6
+
+- **Geändert – Takt ruht während des Updates schon in der Schale:** Der Minutentakt endet bei laufender Aktualisierung jetzt, bevor PHP startet. Bis 0.9.5 hielt erst `cron.php` an; der Takt schrieb vorher nur eine Zeile in `cron.log`, Daten gingen nicht verloren. Ist die Marke eine Stunde oder älter, liegt sie in der Zukunft oder enthält sie keine Unixzeit, gilt sie nicht, damit eine abgebrochene Aktualisierung den Takt nicht dauerhaft stilllegt. Alle Plugins dieser Reihe fragen die Marke mit demselben Block ab. Es wirkt schon beim Update auf diese Fassung, denn der Installer legt die Takte der neuen Fassung vor der Lücke an, und das `preupgrade.sh` der neuen Fassung legt die Marke an. Gemessen in einer Nachstellung des Update-Ablaufs auf dem Arbeitsrechner (WSL); am Gerät nicht gemessen.
+- **Geändert – Befehlsbrücke 1.0.3:** Während einer Aktualisierung legen Wächter und Start der Befehlsbrücke nichts mehr an. Bis 1.0.2 entstanden in der Lücke `befehle/`, die Optionsdateien und die Sperrdatei, bevor die Marke den Start abwies. Gemessen in einer Nachstellung auf dem Arbeitsrechner (WSL); am Gerät nicht gemessen.
 
 ## Neu in 0.9.5
 
