@@ -510,7 +510,10 @@ function cr_cfg_lage()
     return array('soll' => count($v), 'da' => count($v) - count($fehlt), 'fehlt' => $fehlt, 'fremd' => $fremd);
 }
 
-/** Ein Update laeuft (Marke von preupgrade.sh, juenger als eine Stunde): der Minutenlauf ruht. */
+/** Ein Update laeuft (Marke von preupgrade.sh, juenger als eine Stunde): der Minutenlauf ruht.
+ *  0.9.7 (Frage 83, Entscheidung des Hausherrn 19.11.2026): dieselbe Regel wie der Takt-Stammblock
+ *  (Werkzeuge/gemeinsam/takt_upgrade_marke.txt) - der INHALT ist die Unixzeit, nicht aus der Zukunft, juenger als
+ *  3600 s; ohne Zahl oder aus der Zukunft gilt die Marke nicht. Bis 0.9.6 zaehlte die Aenderungszeit der Datei. */
 function cr_upgrade_marke_frisch()
 {
     $p = cr_paths();
@@ -518,7 +521,9 @@ function cr_upgrade_marke_frisch()
     $m = $p['lbhome'] . '/data/plugins/' . $p['plugin'] . '.upgrade_laeuft';
     clearstatcache(true, $m);
     if (!is_file($m)) { return false; }
-    $alter = time() - (int) @filemtime($m);
+    $roh = trim((string) @file_get_contents($m));
+    if (preg_match('/^[0-9]{1,12}$/', $roh) !== 1) { return false; }
+    $alter = time() - (int) $roh;
     return $alter >= 0 && $alter < 3600;
 }
 

@@ -1,6 +1,6 @@
 # LoxBerry-Plugin: 3D-Drucker (Creality2Lox)
 
-Version 0.9.6 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
+Version 0.9.7 · LoxBerry ab 3.0 · PHP 7.4, 8.4 und 8.5 · gemessen am Creality K2 Plus (Moonraker), nur lesend
 
 Bindet einen Creality-Drucker mit Klipper und **Moonraker** an Loxone an. Das Plugin fragt die HTTP-Schnittstelle von
 Moonraker im Heimnetz ab (Port 7125, ohne Anmeldung) und gibt Druckzustand, Fortschritt, Restzeit, Schicht,
@@ -9,6 +9,10 @@ wahlweise über einen **HTTP-Lesezweig**. Keine Cloud, kein Konto, keine Anmeldu
 
 Befehle (Pause, Fortsetzen, Druck abbrechen, Notaus, Licht) sind eingebaut, **ab Werk aus** und **nicht am Gerät
 erprobt**.
+
+## Neu in 0.9.7
+
+- **Geändert – PHP-Abfrage der Upgrade-Marke nach der gemeinsamen Regel:** Der Minutenlauf (`bin/cron.php`) und das Vervollständigen der Konfiguration lesen die Marke einer laufenden Aktualisierung jetzt nach derselben Regel wie der Takt selbst: Sie gilt nur, wenn sie eine Unixzeit enthält, die nicht in der Zukunft liegt und weniger als eine Stunde zurückliegt. Bis 0.9.6 zählte die Änderungszeit der Datei; eine Marke mit unlesbarem Inhalt, mit einer Zeit aus der Zukunft oder mit einer Zeit älter als eine Stunde hielt den Lauf dann bis zu einer Stunde lang an, obwohl der Takt sie schon nicht mehr gelten ließ. Gemessen auf dem Arbeitsrechner (WSL mit PHP 8.3, Windows mit PHP 7.4 und 8.4) an zehn Fällen, die Fassung 0.9.6 zur Gegenprobe; am Gerät nicht gemessen.
 
 ## Neu in 0.9.6
 
