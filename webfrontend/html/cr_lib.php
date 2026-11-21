@@ -530,21 +530,11 @@ function cr_upgrade_marke_frisch()
 /** Die eigene Fassung: aus der plugindatabase.json (LBSystem), sonst aus plugin.cfg neben dem Archiv. */
 function cr_pluginversion()
 {
-    static $v = null;
-    if ($v !== null) { return $v; }
-    $v = '';
-    if (class_exists('LBSystem', false) && method_exists('LBSystem', 'pluginversion')) {
-        $v = (string) LBSystem::pluginversion(basename(__DIR__));
-    }
-    if ($v === '') {
-        foreach (array(dirname(dirname(__DIR__)) . '/plugin.cfg') as $f) {
-            if (!is_file($f)) { continue; }
-            $t = preg_replace('/^\s*[#;].*$/m', '', (string) @file_get_contents($f));
-            $ini = @parse_ini_string((string) $t, true, INI_SCANNER_RAW);
-            if (is_array($ini) && isset($ini['PLUGIN']['VERSION'])) { $v = trim((string) $ini['PLUGIN']['VERSION'], '"'); break; }
-        }
-    }
-    return $v;
+    /* 21.11.2026 (Fassung im Titel, Entscheidung des Hausherrn): aus dem gemeinsamen Stueck fassung.php,
+     * fuer alle Linien gleich - LBSystem::pluginversion(<ordner>), Plugin-Datenbank ueber den Ordnernamen,
+     * plugin.cfg des entpackten Archivs; nichts gefunden: ''. */
+    require_once __DIR__ . '/fassung.php';
+    return plugin_fassung(__DIR__);
 }
 
 /* ---------------------------------------------------------------------------------------------------------------

@@ -367,7 +367,8 @@ function cw_haken($name, $an, $text)
 /* ---------- 6. Erst jetzt der Seitenkopf ---------- */
 $cr_frame = class_exists('LBWeb', false);
 if ($cr_frame) {
-    LBWeb::lbheader(cr_t('TEXT.TITEL') . ' ' . cr_pluginversion(), 'https://wiki.loxberry.de/plugins/start', 'help.html');
+    require_once __DIR__ . '/fassung.php';   // Fassung im Titel: gemeinsames Stueck fassung.php (21.11.2026)
+    LBWeb::lbheader(plugin_kopftitel(cr_t('TEXT.TITEL'), __DIR__), 'https://wiki.loxberry.de/plugins/start', 'help.html');
 } else {
     echo '<!DOCTYPE html><html lang="' . cr_e(cr_sprache()) . '"><head><meta charset="utf-8"><title>'
        . cr_e(cr_t('TEXT.TITEL')) . '</title></head><body>';
