@@ -26,6 +26,8 @@ date_default_timezone_set('Europe/Berlin');
  * des Hausherrn 12.11.2026): Einstellungen sichern und zurueckspielen nach den Regeln des Moduls. Die Beschreibung
  * dieser Linie steht in cr_sicherung_beschreibung(). */
 require_once __DIR__ . '/sicherung.php';
+require_once __DIR__ . '/meldung.php';     // Statusmeldungen an SignalBot (seit 0.9.9)
+require_once __DIR__ . '/haus_bereiche.php';     // gemeinsame Bereiche unter haus/ (seit 0.9.9, Regeln/07)
 
 define('CR_ORDNER_VORGABE', 'creality2lox');
 define('CR_CFS_MAX', 4);                 // Creality-Materialboxen T1 bis T4 (gemessen: box.T1 ... box.T4)
@@ -279,6 +281,7 @@ function cr_vorgaben()
         'freigabe_notaus' => 0,          // Stufe Notaus - ab Werk aus
         'endpunkt_ein' => 0,             // HTTP-Lesezweig fuer Loxone - ab Werk aus (MQTT ist der Regelweg)
         'aktionstoken' => '',            // schuetzt Befehle und Selbsttest am unangemeldeten Endpunkt
+        'meldung' => meld_vorgaben(cr_meld_anlaesse(), cr_meld_haken_vorgabe()),     // 0.9.9: Meldungen an SignalBot, ab Werk aus
     );
 }
 
@@ -423,6 +426,9 @@ function cr_wert_pruefen($schluessel, $wert)
                 ? '' : cr_t('GRUND.SCHALTER');
         case 'aktionstoken':
             return (is_string($wert) && preg_match('/^[A-Za-z0-9_\-]{16,128}\z/', $wert)) ? '' : cr_t('GRUND.TOKEN');
+        case 'meldung':     // 0.9.9: der Block 'Meldungen an SignalBot' (gemeinsames Modul)
+            $mf = meld_block_pruefen($wert, cr_meld_anlaesse());
+            return $mf ? meld_beanstandung_text($mf[0], cr_meld_k()) : '';
     }
     return cr_t('GRUND.UNBEKANNT');
 }
@@ -564,6 +570,7 @@ function cr_sicherung_beschreibung()
             $schluessel[$k] = array('wandeln' => function ($w) { return (int) $w; });
         }
     }
+    $schluessel['meldung'] = meld_sicherung_knoten(cr_meld_anlaesse(), cr_meld_k());     // 0.9.9: fehlt -> behalten
     return array(
         'kennzeichen' => 'creality2lox',
         'hinweis' => cr_t('TEXT.SICH_HINWEIS_KOPF'),
@@ -571,6 +578,10 @@ function cr_sicherung_beschreibung()
         'schluessel' => $schluessel,
         'pruefen' => function ($k, $w) {
             $grund = cr_wert_taugt($w) ? cr_wert_pruefen($k, $w) : cr_t('GRUND.STEUERZEICHEN');
+            /* 0.9.9: kein Praefix auf einem gemeinsamen Bereich unter haus/ (Regeln/07) - wie im Formular. */
+            if ($grund === '' && $k === 'mqtt_topic' && is_string($w) && hb_bereich($w) !== '') {
+                $grund = sprintf(cr_t('HAUSBEREICH.SICH_W'), hb_bereich($w));
+            }
             return $grund === '' ? '' : sprintf(cr_t('TEXT.SICH_WERT'), cr_e($k), cr_e($grund));
         },
         'jetzt' => function () { return cr_config(false); },
@@ -882,6 +893,8 @@ function cr_durchgang()
     }
     $lauf = cr_lauf_setzen($ok, $grund, (int) round((microtime(true) - $t0) * 1000));
     cr_log_if_changed('erreichbar', $ok ? 'Drucker antwortet (Moonraker).' : 'Drucker antwortet nicht: ' . $grund);
+    // 0.9.9: die Flanke fuer die Meldung an SignalBot (ab Werk aus) - ein Fehler haelt den Durchgang nicht auf.
+    try { cr_meld_flanke($ok); } catch (Throwable $e) { cr_log_if_changed('meld', 'Meldung an SignalBot: ' . get_class($e)); }
     return array($lauf, $st);
 }
 
@@ -1184,6 +1197,7 @@ function cr_mqtt_senden($st, $voll = false)
     $udp = cr_mqtt_udpport();
     if (!$udp || !is_array($st) || empty($st['ok'])) { return 0; }
     $praefix = cr_mqtt_thema_saeubern($cfg['mqtt_topic']);
+    cr_praefix_haus_melden($cfg);   // 0.9.9: Praefix im gemeinsamen Bereich? melden, nicht anhalten
     $af = cr_tmpdir() . '/mqtt_gesendet.json';
     $abbild = is_file($af) ? json_decode((string) @file_get_contents($af), true) : null;
     $gilt = is_array($abbild) && isset($abbild['praefix'], $abbild['werte'], $abbild['voll'])
@@ -1798,6 +1812,9 @@ function cr_selbsttest($opt = array())
         ? sprintf(cr_t('PRUEF.ADRESSE_OK'), $cfg['drucker_host'], (int) $cfg['drucker_port']) : cr_t('PRUEF.ADRESSE_FEHLT'));
     list($co, $ct) = cr_cron_lage();
     $add($co, 'TEST.Z_CRON', $ct);
+    // 0.9.9: faellt das Themen-Praefix auf einen gemeinsamen Bereich unter haus/ (Regeln/07)?
+    $cr_hb = cr_pruef_praefix_haus($cfg);
+    $add($cr_hb[0] === -1 ? 2 : $cr_hb[0], 'HAUSBEREICH.F_TEST', $cr_hb[1]);
     $alter = cr_lauf_alter();
     $lauf = cr_lauf_lesen();
     if ((string) $cfg['drucker_host'] === '') {
@@ -1853,4 +1870,179 @@ function cr_selbsttest($opt = array())
         $add(2, 'TEST.Z_ENDPUNKT', cr_t('PRUEF.EP_NUR_OFFEN'));
     }
     return $z;
+}
+
+/**
+ * 0.9.9 (Entscheidung des Hausherrn 23.11.2026 "Nur gemeinsame Bereiche", Regeln/07): Zeile im Reiter Test -
+ * faellt das gespeicherte Themen-Praefix auf einen gemeinsamen Bereich unter haus/? Speichern und Zurueckspielen
+ * weisen ein solches Praefix ab; ein schon gespeichertes bleibt in Betrieb und ist hier rot, grau bei ausgeschaltetem MQTT.
+ * Liste und Pruefung aus dem gemeinsamen Modul haus_bereiche.php. Rueckgabe array(stand, html).
+ */
+function cr_pruef_praefix_haus($cfg)
+{
+    $p = cr_mqtt_thema_saeubern(isset($cfg['mqtt_topic']) ? $cfg['mqtt_topic'] : '');
+    $b = hb_bereich($p);
+    if ($b !== '') {
+        if (!(!empty($cfg['mqtt_enabled']))) {
+            return array(-1, sprintf(cr_t('HAUSBEREICH.A_AUS'), strval($p), strval($b)));
+        }
+        return array(0, sprintf(cr_t('HAUSBEREICH.A_NEIN'), strval($p), strval($b)));
+    }
+    return array(1, sprintf(cr_t('HAUSBEREICH.A_JA'), strval($p)));
+}
+
+/**
+ * 0.9.9: einmal je Aenderung eine Protokollzeile, solange das Praefix auf einen gemeinsamen Bereich faellt; der
+ * Versand bleibt, wie er ist. Gemerkt in praefix_haus_gemeldet.txt im Datenordner. Rueckgabe der Bereich oder ''.
+ */
+function cr_praefix_haus_melden($cfg, $merk = null)
+{
+    $p = cr_mqtt_thema_saeubern(isset($cfg['mqtt_topic']) ? $cfg['mqtt_topic'] : '');
+    if ($merk === null) {
+        $merk = cr_paths()['datadir'] . '/praefix_haus_gemeldet.txt';
+    }
+    $b = hb_melden_faellig($p, $merk);
+    if ($b !== '') {
+        cr_log(hb_logtext($p, $b));
+    }
+    return $b;
+}
+
+/* ---------------- Statusmeldungen an SignalBot (0.9.9, gemeinsames Modul meldung.php) ----------------
+ *
+ * Auftrag des Hausherrn 23.11.2026, Entscheidungen 23./24.11.2026: dieselben Anlaesse wie die Ansage, eigener Haken je
+ * Anlass, ab Werk aus; Sperre, Bremse und Versand im Modul. Die Erkennung laeuft auch ohne Ausgabeart, wenn eine Meldung
+ * eingeschaltet ist (cr_meld_aktiv()), und legt einen Anlass hin, wenn Ansage ODER Meldung ihn will
+ * (cr_meld_will()); der Sender trennt die Wege wieder (cr_meld_nur_ansage()).
+ */
+
+/** Die meldbaren Anlaesse: Name => Beschriftung (dieselben wie die Ansage). */
+function cr_meld_anlaesse()
+{
+    return array('drucker_weg' => cr_t('CR_MELD.L_NICHT'), 'drucker_wieder' => cr_t('CR_MELD.L_WIEDER'));
+}
+
+/** Die ab-Werk-Haken der Ansage dieser Linie: so stehen auch die Haken der Meldung, solange der Block nie gespeichert ist. */
+function cr_meld_haken_vorgabe()
+{
+    return array('drucker_weg' => 1, 'drucker_wieder' => 1);
+}
+
+/** Ist der Haken dieses Anlasses fuer die ANSAGE gesetzt? */
+function cr_ansage_anlass_sprache($a, $cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    return false;
+}
+
+/** Der wirksame Block 'meldung' fuer den Betrieb (ungueltig gespeichert gilt als aus und wird im Formular genannt). */
+function cr_meld_block($cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    list($b) = meld_block(is_array($cfg) && array_key_exists('meldung', $cfg) ? $cfg['meldung'] : null, cr_meld_anlaesse(), cr_meld_haken_vorgabe());
+    return $b;
+}
+
+/** Die Beanstandungen eines gespeicherten Blocks (leer = gueltig). */
+function cr_meld_bean($cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    list(, $f) = meld_block(is_array($cfg) && array_key_exists('meldung', $cfg) ? $cfg['meldung'] : null, cr_meld_anlaesse(), cr_meld_haken_vorgabe());
+    return $f;
+}
+
+/** Ist irgendein Anlass zur Meldung eingeschaltet? Dann laeuft die Erkennung auch ohne Ausgabeart. */
+function cr_meld_aktiv($cfg = null)
+{
+    return meld_irgendein_an(cr_meld_block($cfg));
+}
+
+/** Will die Ansage ODER die Meldung diesen Anlass? */
+function cr_meld_will($a, $cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    return cr_ansage_anlass_sprache($a, $cfg) || meld_anlass_an(cr_meld_block($cfg), (string) $a);
+}
+
+/** Der Kontext des Moduls: Datenordner (data/plugins/<ordner>, daraus der Absender) und Texte - wie bei der Ansage. */
+function cr_meld_k()
+{
+    return array('plugin' => (string) cr_paths()['plugin'], 'ordner' => cr_datadir(), 'home' => (string) cr_paths()['lbhome'], 'name' => 'Creality2Lox', 't' => function ($s) { return cr_t($s); });
+}
+
+/** Fuer die Ansage nur Eintraege, deren Ansage-Haken gesetzt ist; ein Eintrag ohne bekannten Anlass bleibt wie bisher. */
+function cr_meld_nur_ansage(array $l, $cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    $anl = cr_meld_anlaesse();
+    $aus = array();
+    foreach ($l as $e) {
+        if (is_array($e) && array_key_exists(meld_anlass_von($e), $anl) && !cr_ansage_anlass_sprache(meld_anlass_von($e), $cfg)) { continue; }
+        $aus[] = $e;
+    }
+    return $aus;
+}
+
+/** Die Eintraege an SignalBot melden. Protokoll: eine Zeile, wenn gesendet oder gescheitert (nie der Text). */
+function cr_meld_senden(array $l, $cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    $b = cr_meld_block($cfg);
+    if (empty($b['ein']) || !$l) { return null; }
+    $a = meld_regel_senden($l, $b, cr_meld_k());
+    if ($a['regel'] === '' || in_array($a['regel'], array('BREMSE', 'STAND', 'ORDNER'), true)) {
+        cr_log(meld_regel_kurz($a));
+    }
+    return $a;
+}
+
+/** Der Knopf "Testmeldung senden": array(angenommen, Satz). Geht an Haken, Sperre und Bremse vorbei. */
+function cr_meld_test()
+{
+    $r = meld_testmeldung(cr_meld_k());
+    cr_log('Testmeldung an SignalBot: ' . ($r[0] ? 'angenommen' : 'nicht angenommen'));
+    return $r;
+}
+
+/** Der Block im Einstellungsformular (unter den Ansage-Regeln, im selben Formular), mit Lage und Knopf. */
+function cr_meld_form_html($cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
+    $k = cr_meld_k();
+    $o = array();
+    /* 0.9.9: unsichtbarer Doppel des Speicherknopfs VOR dem Knopf Testmeldung - die Eingabetaste in einem Textfeld
+     * loest den ersten Absendeknopf des Formulars aus; sie soll speichern wie bisher, nicht die Testmeldung senden. */
+    $o[] = '<button data-role="none" type="submit" tabindex="-1" aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"></button>';
+    $o[] = '<h3>' . $e(meld_t('TITEL', $k)) . '</h3>';
+    $o[] = meld_formular_html(cr_meld_block($cfg), cr_meld_anlaesse(), array(), $k);
+    list(, $lage) = meld_pruefzeile(cr_meld_block($cfg), cr_meld_bean($cfg), $k);
+    $o[] = '<div class="sm-hilfe">' . $e(meld_t('F_TEST', $k) . ' ' . $lage) . '</div>';
+    $o[] = '<div class="sm-knopfreihe"><button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="meld_test" value="1">'
+         . $e(meld_t('K_TEST', $k)) . '</button></div>';
+    return implode("\n", $o) . "\n";
+}
+
+/**
+ * Die Flanke der Erreichbarkeit fuer die Meldung (0.9.9, Entscheidung des Hausherrn 24.11.2026, F2): aus
+ * cr_durchgang(), je Wechsel einmal; der Merker meld_erreichbar.txt im Datenordner haelt den letzten Stand (1/0). Erster
+ * Lauf: nur merken. Block aus: nichts senden, Merker verwerfen. Rueckgabe aus, nichts, die Regel des Moduls oder die Lage
+ * der Quittung.
+ */
+function cr_meld_flanke($ok, $cfg = null)
+{
+    if ($cfg === null) { $cfg = cr_config(false); }
+    $f = cr_datadir() . '/meld_erreichbar.txt';
+    if (!cr_meld_aktiv($cfg)) { if (is_file($f)) { @unlink($f); } return 'aus'; }
+    $jetzt = $ok ? '1' : '0';
+    $vor = is_file($f) ? trim((string) @file_get_contents($f)) : '';
+    @file_put_contents($f, $jetzt);
+    if ($vor === '' || $vor === $jetzt) { return 'nichts'; }
+    $anlass = $ok ? 'drucker_wieder' : 'drucker_weg';
+    $host = (isset($cfg['drucker_host']) && is_string($cfg['drucker_host']) && $cfg['drucker_host'] !== '') ? $cfg['drucker_host'] : '-';
+    $a = cr_meld_senden(array(array('schluessel' => $anlass, 'anlass' => $anlass,
+                                    'text' => sprintf(cr_t($ok ? 'CR_MELD.WIEDER' : 'CR_MELD.NICHT'), $host))), $cfg);
+    if (!is_array($a)) { return 'aus'; }
+    if ($a['regel'] !== '') { return $a['regel']; }
+    return (is_array($a['q']) && isset($a['q']['lage'])) ? (string) $a['q']['lage'] : 'gesendet';
 }

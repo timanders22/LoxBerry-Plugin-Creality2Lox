@@ -165,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if ($cr_token_meldung !== '') { $cr_fehler[] = cr_e($cr_token_meldung); }
 
 $cr_formular = ($_SERVER['REQUEST_METHOD'] === 'POST') ? cw_post('formular') : '';
-$cr_formulare = array('drucker', 'befehle', 'mqtt', 'endpunkt', 'sichern', 'zurueck', 'token', 'vorlage_vi', 'vorlage_vq',
+$cr_formulare = array('drucker', 'befehle', 'meldung', 'mqtt', 'endpunkt', 'sichern', 'zurueck', 'token', 'vorlage_vi', 'vorlage_vq',
                       'vorlage_mqtt', 'abfragen', 'befehl', 'log');
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($cr_formular, $cr_formulare, true)) {
     cw_umleiten($cr_tab, array('fehler' => array(cr_e(cr_t('FEHLER.FORMULAR_UNBEKANNT')))));
@@ -257,6 +257,24 @@ if ($cr_formular === 'befehle') {
     cw_umleiten('tab-settings', $cr_ok ? array('meldungen' => array(cr_e(cr_t('TEXT.GESPEICHERT'))))
                                        : array('fehler' => array(cr_e(cr_t('TEXT.SICH_SCHREIBFEHLER')))));
 }
+/* 0.9.9: Testmeldung an SignalBot (Knopf im Formular des Blocks). Speichert nichts. */
+if ($cr_formular === 'meldung' && isset($_POST['meld_test'])) {
+    list($meld_ok, $meld_satz) = cr_meld_test();
+    cw_umleiten('tab-settings', $meld_ok ? array('meldungen' => array(cr_e($meld_satz))) : array('fehler' => array(cr_e($meld_satz))));
+}
+/* 0.9.9: der Block 'Meldungen an SignalBot' (ab Werk aus); eine ungueltige Sperrzeit wird gemeldet, nichts gespeichert. */
+if ($cr_formular === 'meldung') {
+    $cr_neu = cr_config();
+    $cr_mm = array();
+    $cr_mb = array();
+    $cr_neu['meldung'] = meld_formular_lesen($_POST, isset($cr_neu['meldung']) ? $cr_neu['meldung'] : null, cr_meld_anlaesse(),
+                                             $cr_mm, $cr_mb, cr_meld_k(), cr_meld_haken_vorgabe());
+    foreach ($cr_mm as $cr_m1) { $cr_fehler[] = cr_e($cr_m1['text']); }
+    if (!$cr_mm) {
+        if (cr_config_speichern($cr_neu)) { $cr_meldungen[] = cr_e(cr_t('TEXT.GESPEICHERT')); } else { $cr_fehler[] = cr_e(cr_t('TEXT.SICH_SCHREIBFEHLER')); }
+    }
+    cw_umleiten('tab-settings', array('meldungen' => $cr_meldungen, 'fehler' => $cr_fehler));
+}
 /* MQTT: wohnt vollstaendig im Reiter MQTT, eigener Handler. Danach die Befehlsbruecke nach den Haken schalten. */
 if ($cr_formular === 'mqtt') {
     $cr_neu = cr_config();
@@ -264,6 +282,14 @@ if ($cr_formular === 'mqtt') {
     $cr_thema = cw_post('mqtt_topic');
     $cr_g = cr_wert_pruefen('mqtt_topic', $cr_thema);
     if ($cr_g !== '') { $cr_fehler[] = cr_e(sprintf(cr_t('FEHLER.FELD'), cr_t('MQTT.L_THEMA'), $cr_g)); $cr_falsch[] = 'mqtt_topic'; }
+    /* 0.9.9 (Entscheidung des Hausherrn 23.11.2026 "Nur gemeinsame Bereiche", Regeln/07): kein Praefix auf einem
+     * gemeinsamen Bereich unter haus/ - nur hier und beim Zurueckspielen, nicht in der Pruefung beim Lesen der
+     * Konfiguration: ein schon gespeichertes bleibt in Betrieb, der Reiter Test meldet es. */
+    elseif (hb_bereich($cr_thema) !== '' && $cr_thema !== (string) $cr_neu['mqtt_topic']) {   // nur NEUE Eingaben: ein schon gespeichertes Praefix sperrt das Speichern
+        // des Reiters nicht (Regeln/07; Bauart Einspeisebremse 0.9.25)
+        $cr_fehler[] = sprintf(cr_t('HAUSBEREICH.FEHLER'), cr_e($cr_thema), cr_e(hb_bereich($cr_thema)));
+        $cr_falsch[] = 'mqtt_topic';
+    }
     else { $cr_neu['mqtt_topic'] = $cr_thema; }
     foreach (array('mqtt_enabled', 'befehle_mqtt_ein', 'befehle_mqtt_steuern') as $cr_k) { $cr_neu[$cr_k] = isset($_POST[$cr_k]) ? 1 : 0; }
     if (cr_config_speichern($cr_neu)) {
@@ -565,6 +591,18 @@ foreach ($cr_fehler as $cr_f) { ?><div class="sm-warnung"><b><?= cr_e(cr_t('TEXT
 <?= cw_haken('freigabe_abbruch', !empty($cr_cfg['freigabe_abbruch']), cr_t('EINST.HAKEN_ABBRUCH')) ?>
 <?= cw_haken('freigabe_notaus', !empty($cr_cfg['freigabe_notaus']), cr_t('EINST.HAKEN_NOTAUS')) ?>
 <div class="sm-hilfe"><?= cr_e(cr_t('EINST.STUFEN_HILFE')) ?></div>
+<div class="sm-knopfreihe">
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= cr_e(cr_t('KNOPF.SPEICHERN')) ?></button>
+</div>
+</form>
+
+<?php /* 0.9.9: Meldungen an SignalBot (ab Werk aus), eigenes Formular */ ?>
+<form action="index.php" method="post" autocomplete="off">
+<input data-role="none" type="hidden" name="formular" value="meldung">
+<input data-role="none" type="hidden" name="activetab" value="tab-settings">
+<?= cw_fmt() ?>
+<div class="sm-hilfe"><?= cr_e(cr_t('CR_MELD.H')) ?></div>
+<?= cr_meld_form_html($cr_cfg) ?>
 <div class="sm-knopfreihe">
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= cr_e(cr_t('KNOPF.SPEICHERN')) ?></button>
 </div>
