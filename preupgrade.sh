@@ -88,6 +88,10 @@ if [ -f "$CF" ]; then
     fi
 fi
 cp -p "$BASE/log/plugins/$PFOLDER/creality.log" "$TMPDIR/creality.log" 2>/dev/null
+# befehle/ ueberlebt das Update bewusst nicht: die Befehlsbruecke legt den Ordner samt Optionsdatei beim
+# Start neu an (Regeln/06, Entscheidung des Hausherrn 15.11.2026). Alles andere im Datenordner traegt der
+# Baustein unten ueber das Update.
+UPGD_OHNE="befehle"
 # [upgrade_daten] Gemeinsamer Baustein (Werkzeuge/gemeinsam/upgrade_daten.sh): den ganzen Datenordner
 # [upgrade_daten] neben den Ordner sichern; misslingt das, bricht die Aktualisierung mit Rueckgabe 2 ab.
 if [ -f "$(dirname "$0")/upgrade_daten.sh" ] && . "$(dirname "$0")/upgrade_daten.sh"; then

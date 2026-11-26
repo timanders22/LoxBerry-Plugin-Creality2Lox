@@ -35,6 +35,32 @@
 #                    vor dem exit 0:    upgrade_daten_sichern "$UPGD_ORDNER" "$UPGD_WURZEL" || exit 2
 #     postinstall.sh oben:              upgrade_daten_zurueck "$3" "$5" "<ablageort des skripts>"
 #
+# WAHLWEISE ANGABEN DER LINIE (seit 1.1.0, 15.11.2026; Anlass Weissware 0.9.55: mit 1.0.0 kamen dort
+# befehle/, antworten/ und hc_anmeldung.json ueber das Update zurueck, ein Auftrag mit 4 s Alter - der Dienst
+# verwirft erst ab 60 s; und scheiterte das Sichern, blieb der Dienst aus, weil der eigene Fehlerweg der Linie
+# hinter "|| exit 2" nie lief). Beide stehen in preupgrade.sh NACH der Zeile "UPGD_ORDNER=..." oben und VOR
+# dem Aufruf unten; die Aufrufzeilen selbst bleiben wortgleich mit 1.0.0.
+#     UPGD_ORDNER="$3"; UPGD_WURZEL="$5"          (oben, wie bisher)
+#     UPGD_OHNE="befehle antworten hc_anmeldung.json"
+#         Was ein Update bewusst NICHT ueberleben soll: Namen relativ zum Datenordner, durch je ein
+#         Leerzeichen getrennt, ein Ordner faellt mit seinem ganzen Inhalt weg. Erlaubt sind nur
+#         A-Z a-z 0-9 . _ / -, kein fuehrender oder abschliessender /, kein //, kein Teil . oder .., kein
+#         Name doppelt, keine Muster. Ein unbrauchbarer Name ist ein <FAIL> mit Rueckgabe 2 - es wird
+#         nichts gesichert und nichts zurechtgebogen; alle unbrauchbaren werden zusammen genannt. tar und
+#         die Gegenzaehlung lassen genau dieselben Namen aus (tar --exclude=./NAME, find -path ./NAME
+#         -prune; gemessen mit GNU tar 1.35: weder ./NAME2 noch ./sub/NAME werden getroffen). Die
+#         <OK>-Zeile zaehlt und nennt, was davon vorhanden war und ausgelassen wurde.
+#     upgd_bei_fehler() { if [ -f "$SICHER/$PFOLDER.backup.lief" ]; then : >"$PDATA/soll_laufen"; fi; }
+#         Der Fehlerweg der Linie. Scheitert das Sichern, ruft upgd_abbruch ihn, NACHDEM der Baustein
+#         seinen Rest (.neu) und die Marke <ordner>.upgrade_laeuft entfernt hat, mit dem Grund als $1 -
+#         etwa um den Dienstmerker wieder anzulegen, den die Linie vor dem Sichern weggenommen hat. Erkannt
+#         wird er an "command -v upgd_bei_fehler" (unter dash, bash und bash --posix gemessen: eine
+#         Funktion meldet genau ihren Namen, eine fehlende nichts). Er laeuft in einer Unterschale und als
+#         Bedingung eines if: ein "exit" darin beendet nur die Unterschale, und die Rueckgabe des Bausteins
+#         bleibt 2. Endet er nicht mit 0, sagt es eine <FAIL>-Zeile.
+# Ohne beide Angaben verhaelt sich 1.1.0 wie 1.0.0: dieselbe Sicherung, dieselben Meldungen, dieselben
+# Rueckgaben (am 15.11.2026 in den dreizehn Faellen des Pilot-Pruefstands nebeneinander gemessen).
+#
 # SICHERN (preupgrade.sh): data/plugins/<ordner>/ vollstaendig, mit Unterordnern, Rechten und
 # Zeitstempeln (tar), ohne *.lock, *.pid und Sockets, nach data/plugins/<ordner>.upgrade_daten/daten/
 # - neben dem Ordner, den purge_installation loescht, nicht darin. Gebaut wird unter
@@ -43,6 +69,11 @@
 # diesem Augenblick schreibt). Erst dann wird umbenannt; eine aeltere Sicherung faellt zuletzt.
 # Misslingt etwas: <FAIL>, die Marke <ordner>.upgrade_laeuft wird entfernt und Rueckgabe 2 - der
 # Installer bricht ab, und die bisherige Fassung bleibt mit ihrem Datenordner installiert.
+# Die Marke faellt auch dann, wenn sie schon vor diesem Lauf lag: die Linie hat sie in diesem Lauf neu
+# datiert, und eine liegende Marke sperrt den Dienststart der weiterhin installierten Fassung bis zu einer
+# Stunde (Weissware 0.9.55, postinstall.sh: "Ohne trap bliebe der Dienst nach einer gescheiterten
+# Installation eine Stunde gesperrt"); eine Sicherung, die von einem frueheren, nicht zu Ende gekommenen
+# Update stammt, braucht die Marke nicht - der Baustein erkennt sie am Zeitpunkt (15.11.2026, Regeln/06).
 #
 # ZURUECKSPIELEN (postinstall.sh, ganz oben): jede Datei der Sicherung, die in der neuen
 # Installation fehlt, kommt mit Rechten und Zeitstempel zurueck. Was die neue Installation schon
@@ -57,7 +88,7 @@
 # Nur POSIX-sh (elf Linien rufen ihre Haken mit /bin/sh, auf dem LoxBerry dash), dazu GNU tar,
 # find, md5sum, sort, du und df aus dem Grundsystem. Alle Namen tragen die Vorsilbe upgd_.
 
-UPGRADE_DATEN_FASSUNG=1.0.0
+UPGRADE_DATEN_FASSUNG=1.1.0
 
 # Wurzel ist, was config/plugins, data/plugins UND config/system/general.json traegt (Regeln/06).
 upgd_wurzel_ok() {
@@ -73,13 +104,30 @@ upgd_ordner_ok() {
     return 0
 }
 
+# Ein Name aus UPGD_OHNE ist ein schlichter Pfad im Datenordner - nichts hinaus, nichts Mehrdeutiges.
+upgd_name_ok() {
+    case "$1" in
+        ''|/*|*/|*//*|.|..|./*|../*|*/.|*/..|*/./*|*/../*|*[!A-Za-z0-9._/-]*) return 1 ;;
+    esac
+    return 0
+}
+
 # Was gegengezaehlt wird: je Eintrag Art, Rechte, Verweisziel und Pfad, dazu die Pruefsumme jeder
-# Datei - ausgelassen genau das, was auch tar auslaesst.
+# Datei - ausgelassen genau das, was auch tar auslaesst. $2 = 1 laesst dazu die Namen aus UPGD_OHNE
+# (upgd_ohne_ok) aus; das gilt nur fuer die Quelle - die Kopie wird ganz gezaehlt, damit auch ein Name
+# auffaellt, den tar NICHT ausgelassen hat.
 upgd_liste() {
     ( cd "$1" || exit 1
-      find . \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -o -printf '%y %m %l|%P\n' \
+      upgd_l=""
+      if [ "${2:-0}" = 1 ]; then upgd_l=${upgd_ohne_ok:-}; fi
+      set -f; IFS=' '; set --
+      for upgd_x in $upgd_l; do
+          if [ $# = 0 ]; then set -- \( -path "./$upgd_x"; else set -- "$@" -o -path "./$upgd_x"; fi
+      done
+      if [ $# != 0 ]; then set -- "$@" \) -prune -o; fi
+      find . "$@" \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -o -printf '%y %m %l|%P\n' \
           | LC_ALL=C sort
-      find . \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -o -type f -exec md5sum {} + \
+      find . "$@" \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -o -type f -exec md5sum {} + \
           | LC_ALL=C sort
     )
 }
@@ -92,6 +140,13 @@ upgd_abbruch() {   # $1 Grund
     fi
     if [ -n "$upgd_marke" ]; then
         rm -f "$upgd_marke" 2>/dev/null
+    fi
+    if [ "$(command -v upgd_bei_fehler 2>/dev/null)" = upgd_bei_fehler ]; then
+        if ( upgd_bei_fehler "$1" ); then
+            :
+        else
+            echo "<FAIL> upgrade_daten: der Fehlerweg der Linie (upgd_bei_fehler) endete mit Rueckgabe $?."
+        fi
     fi
     return 2
 }
@@ -114,6 +169,26 @@ upgrade_daten_sichern() {
     upgd_marke="$upgd_w/data/plugins/$upgd_o.upgrade_laeuft"
     upgd_q="$upgd_w/data/plugins/$upgd_o"
     upgd_z="$upgd_q.upgrade_daten"
+    upgd_ohne_ok=""
+    upgd_ohne_falsch=""
+    upgd_r=${UPGD_OHNE:-}
+    while [ -n "$upgd_r" ]; do
+        upgd_x=${upgd_r%% *}
+        if [ "$upgd_x" = "$upgd_r" ]; then upgd_r=""; else upgd_r=${upgd_r#* }; fi
+        [ -n "$upgd_x" ] || continue
+        if ! upgd_name_ok "$upgd_x"; then
+            upgd_ohne_falsch="$upgd_ohne_falsch '$upgd_x'"
+            continue
+        fi
+        case " $upgd_ohne_ok " in
+            *" $upgd_x "*) upgd_ohne_falsch="$upgd_ohne_falsch '$upgd_x' (doppelt)" ;;
+            *) upgd_ohne_ok="${upgd_ohne_ok:+$upgd_ohne_ok }$upgd_x" ;;
+        esac
+    done
+    if [ -n "$upgd_ohne_falsch" ]; then
+        upgd_abbruch "upgrade_daten: unbrauchbare Angabe in UPGD_OHNE:$upgd_ohne_falsch - erlaubt sind Namen relativ zum Datenordner aus A-Z a-z 0-9 . _ / - (kein fuehrender /, kein . oder .., keiner doppelt). Nichts gesichert."
+        return 2
+    fi
     for upgd_t in tar find md5sum sort du df cmp; do
         if ! command -v "$upgd_t" >/dev/null 2>&1; then
             upgd_abbruch "upgrade_daten: das Programm $upgd_t fehlt - der Datenordner liesse sich nicht pruefbar sichern."
@@ -163,13 +238,16 @@ upgrade_daten_sichern() {
         if ! ( umask 077 && mkdir "$upgd_n/daten" ) 2>/dev/null; then
             break
         fi
-        { tar -C "$upgd_q" --exclude='*.lock' --exclude='*.pid' --warning=no-file-ignored -cf - . \
-              2>"$upgd_n/fehler_lesen"
+        { ( set -f; IFS=' '; set --
+            for upgd_x in $upgd_ohne_ok; do set -- "$@" "--exclude=./$upgd_x"; done
+            tar -C "$upgd_q" --exclude='*.lock' --exclude='*.pid' "$@" --warning=no-file-ignored -cf - . \
+                2>"$upgd_n/fehler_lesen"
+          )
           echo $? >"$upgd_n/rc_lesen"
         } | tar -C "$upgd_n/daten" -xpf - 2>"$upgd_n/fehler_schreiben"
         upgd_rc_s=$?
         upgd_rc_l=$(cat "$upgd_n/rc_lesen" 2>/dev/null)
-        upgd_liste "$upgd_q" >"$upgd_n/liste_quelle" 2>/dev/null
+        upgd_liste "$upgd_q" 1 >"$upgd_n/liste_quelle" 2>/dev/null
         upgd_liste "$upgd_n/daten" >"$upgd_n/liste_kopie" 2>/dev/null
         if [ "$upgd_rc_l" = 0 ] && [ "$upgd_rc_s" = 0 ] && [ -s "$upgd_n/liste_quelle" ] \
            && cmp -s "$upgd_n/liste_quelle" "$upgd_n/liste_kopie"; then
@@ -191,7 +269,19 @@ upgrade_daten_sichern() {
     fi
     upgd_dateien=$(grep -c '^f ' "$upgd_n/liste_quelle" 2>/dev/null)
     upgd_ordner=$(grep -c '^d ' "$upgd_n/liste_quelle" 2>/dev/null)
-    upgd_aus=$(find "$upgd_q" \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -print 2>/dev/null | wc -l)
+    upgd_aus=$( cd "$upgd_q" && set -f && IFS=' ' && set -- \
+        && for upgd_x in $upgd_ohne_ok; do set -- "$@" -path "./$upgd_x" -prune -o; done \
+        && find . "$@" \( -name '*.lock' -o -name '*.pid' -o -type s \) -prune -print 2>/dev/null | wc -l)
+    upgd_ohne_m=0; upgd_ohne_n=0; upgd_ohne_da=""
+    upgd_r=$upgd_ohne_ok
+    while [ -n "$upgd_r" ]; do
+        upgd_x=${upgd_r%% *}
+        if [ "$upgd_x" = "$upgd_r" ]; then upgd_r=""; else upgd_r=${upgd_r#* }; fi
+        upgd_ohne_m=$((upgd_ohne_m + 1))
+        if [ -e "$upgd_q/$upgd_x" ] || [ -L "$upgd_q/$upgd_x" ]; then
+            upgd_ohne_n=$((upgd_ohne_n + 1)); upgd_ohne_da="$upgd_ohne_da $upgd_x"
+        fi
+    done
     rm -f "$upgd_n/rc_lesen" "$upgd_n/fehler_lesen" "$upgd_n/fehler_schreiben" "$upgd_n/liste_kopie" 2>/dev/null
     date +%s >"$upgd_n/zeitpunkt" 2>/dev/null
     if ! grep -qx '[0-9][0-9]*' "$upgd_n/zeitpunkt" 2>/dev/null; then
@@ -215,7 +305,11 @@ upgrade_daten_sichern() {
     upgd_n=""
     rm -rf "$upgd_z.alt" 2>/dev/null
     chmod 700 "$upgd_z" 2>/dev/null
-    echo "<OK> Datenordner fuer das Update gesichert und gegengezaehlt: $upgd_dateien Datei(en) in $upgd_ordner Ordner(n), $upgd_aus ausgelassen (*.lock, *.pid, Sockets) - $upgd_z"
+    if [ -n "$upgd_ohne_ok" ]; then
+        echo "<OK> Datenordner fuer das Update gesichert und gegengezaehlt: $upgd_dateien Datei(en) in $upgd_ordner Ordner(n), $upgd_aus ausgelassen (*.lock, *.pid, Sockets), $upgd_ohne_n von $upgd_ohne_m genannten Eintraegen bewusst nicht mitgenommen (UPGD_OHNE):${upgd_ohne_da:- keiner vorhanden} - $upgd_z"
+    else
+        echo "<OK> Datenordner fuer das Update gesichert und gegengezaehlt: $upgd_dateien Datei(en) in $upgd_ordner Ordner(n), $upgd_aus ausgelassen (*.lock, *.pid, Sockets) - $upgd_z"
+    fi
     return 0
 }
 
